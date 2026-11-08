@@ -3,6 +3,7 @@ import axios from 'axios'
 import CreateProject from './CreateProject'
 import ProjectList from './ProjectList'
 import ProjectMembers from './ProjectMembers'
+import Backlog from './Backlog'
 
 function Projects() {
   //List of registered users (used for Project Lead and member dropdowns)
@@ -13,6 +14,7 @@ function Projects() {
   const [selectedProjectId, setSelectedProjectId] = useState('')
   //Error message shown on the page
   const [error, setError] = useState('')
+  const [membersVersion, setMembersVersion] = useState(0)
 
   //Fetch the registered users from the backend
   const loadUsers = () => {
@@ -55,7 +57,6 @@ function Projects() {
       {error && <p className="error">{error}</p>}
 
       {/* Create Project form; reloads the project list after a project is created */}
-            {/* Create Project form; reloads the project list after a project is created */}
       <CreateProject users={users} onCreated={loadProjects} />
 
       {/* Project list; clicking "Display project members" sets the selected project */}
@@ -67,7 +68,21 @@ function Projects() {
 
       {/* key makes React start fresh when a different project is selected */}
       {selectedProject && (
-        <ProjectMembers key={selectedProject._id} project={selectedProject} users={users} />
+        <ProjectMembers
+          key={selectedProject._id}
+          project={selectedProject}
+          users={users}
+          onMembersChanged={() => setMembersVersion(membersVersion + 1)}
+        />
+      )}
+
+      {selectedProject && (
+        <Backlog
+          key={selectedProject._id}
+          project={selectedProject}
+          users={users}
+          membersVersion={membersVersion}
+        />
       )}
     </div>
   )

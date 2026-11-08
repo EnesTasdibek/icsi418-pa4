@@ -1,19 +1,19 @@
 import { useState, useEffect, useCallback } from 'react'
 const API = 'http://localhost:9000'
 
-function ProjectMembers({ project, users }) {
+function ProjectMembers({ project, users, onMembersChanged }) {
   const [members, setMembers] = useState([])
   const [selectedUserId, setSelectedUserId] = useState('')
   const [message, setMessage] = useState('')
 
   function userLabel(users, id) {
-  const user = users.find(user => user._id === id)
-  if (user) {
-    return user.username
-  } else {
-    return 'Unknown user'
+    const user = users.find(user => user._id === id)
+    if (user) {
+      return user.username
+    } else {
+      return 'Unknown user'
+    }
   }
-}
 
   //Retrieve project memberships
   const loadMembers = useCallback(async () => {
@@ -48,6 +48,7 @@ function ProjectMembers({ project, users }) {
         return
       }
       setMessage(`${userLabel(users, selectedUserId)} added`)
+      onMembersChanged()
       setSelectedUserId('')
       loadMembers()
     } catch {
@@ -67,13 +68,14 @@ function ProjectMembers({ project, users }) {
         return
       }
       setMessage(`${userLabel(users, userId)} removed`)
+      onMembersChanged()
       loadMembers()
     } catch {
       setMessage('Could not reach the server')
     }
   }
 
-    return (
+  return (
     <div className="members-box">
       <h2>{project.name} members</h2>
 
@@ -107,7 +109,7 @@ function ProjectMembers({ project, users }) {
       </div>
 
       <p>{message}</p>
-    </div>                              
+    </div>
   )
 }
 

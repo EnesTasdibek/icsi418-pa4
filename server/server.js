@@ -8,11 +8,12 @@ const cors = require("cors");
 //Express server includes JSON body parsing before the routes that need it
 const app = express();
 const User = require('./userSchema')
-
 // ----- PA3 imports ----
 const Project = require('./projectSchema')
 const ProjectMembership = require('./projectMembershipSchema')
 const validId = mongoose.isValidObjectId;
+// ----- PA4 imports ----
+const UserStory = require('./userStorySchema')
 // --------------------------
 
 app.use(express.json());
@@ -215,6 +216,9 @@ app.delete("/api/projects/:projectId/members/:userId", async (req, res) => {
     if (String(project.project_lead_id) === userId) {
       return res.status(400).json({ message: "The project lead cannot be removed" });
     }
+    if (await UserStory.exists({ project_id: projectId, assigned_user_id: userId })) {
+      return res.status(409).json({ message: "This member still has stories assigned in this project. Reassign, unassign, or delete those stories before removing them." });
+    }
     const { deletedCount } = await ProjectMembership.deleteOne({ project_id: projectId, user_id: userId });
     if (!deletedCount) {
       return res.status(404).json({ message: "User is not a member of this project" });
@@ -223,6 +227,158 @@ app.delete("/api/projects/:projectId/members/:userId", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server problem" });
+  }
+});
+
+/* ------- PA4 -------- */
+
+const priorities = ["High", "Medium", "Low"];
+const storyStatuses = ["To Do", "In Progress", "Done"];
+
+function checkStoryFields(title, description, priority) {
+  if (typeof title !== "string" || title.trim() === "") {
+    return "Title is required";
+  }
+  if (typeof description !== "string" || description.trim() === "") {
+    return "Description is required";
+  }
+  if (!priorities.includes(priority)) {
+    return "Priority must be High, Medium, or Low";
+  }
+  return "";
+}
+
+async function checkAssignedUser(projectId, assigned_user_id) {
+  if (assigned_user_id === null) {
+    return "";
+  }
+  if (!validId(assigned_user_id)) {
+    return "Invalid assigned user id";
+  }
+  if (!(await User.exists({ _id: assigned_user_id }))) {
+    return "Assigned user does not exist";
+  }
+  if (!(await ProjectMembership.exists({ project_id: projectId, user_id: assigned_user_id }))) {
+    return "Assigned user is not a member of this project";
+  }
+  return "";
+}
+
+app.get("/api/projects/:projectId/stories", async (req, res) => {
+  const { projectId } = req.params;
+  if (!validId(projectId)) {
+    return res.status(400).json({ message: "Invalid project id" });
+  }
+  try {
+    if (!(await Project.exists({ _id: projectId }))) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+    res.json(await UserStory.find({ project_id: projectId }));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+app.post("/api/projects/:projectId/stories", async (req, res) => {
+  const { projectId } = req.params;
+  const body = req.body || {};
+  const { title, description, priority, assigned_user_id } = body;
+
+  if (!validId(projectId)) {
+    return res.status(400).json({ message: "Invalid project id" });
+  }
+  const fieldError = checkStoryFields(title, description, priority);
+  if (fieldError) {
+    return res.status(400).json({ message: fieldError });
+  }
+  try {
+    if (!(await Project.exists({ _id: projectId }))) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+    const assignError = await checkAssignedUser(projectId, assigned_user_id);
+    if (assignError) {
+      return res.status(400).json({ message: assignError });
+    }
+    const story = await UserStory.create({
+      project_id: projectId,
+      title: title.trim(),
+      description: description.trim(),
+      priority,
+      status: "To Do",
+      assigned_user_id
+    });
+    res.status(201).json({ message: "Story created", story });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+app.put("/api/projects/:projectId/stories/:storyId", async (req, res) => {
+  const { projectId, storyId } = req.params;
+  const body = req.body || {};
+  const { 
+    title, 
+    description, 
+    priority, 
+    status, 
+    assigned_user_id } = body;
+
+  if (!validId(projectId) || !validId(storyId)) {
+    return res.status(400).json({ message: "Invalid project or story id" });
+  }
+  const fieldError = checkStoryFields(title, description, priority);
+  if (fieldError) {
+    return res.status(400).json({ message: fieldError });
+  }
+  if (!storyStatuses.includes(status)) {
+    return res.status(400).json({ message: "Status must be To Do, In Progress, or Done" });
+  }
+  try {
+    if (!(await Project.exists({ _id: projectId }))) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+    const assignError = await checkAssignedUser(projectId, assigned_user_id);
+    if (assignError) {
+      return res.status(400).json({ message: assignError });
+    }
+    const result = await UserStory.updateOne(
+      { _id: storyId, project_id: projectId },
+      {
+        $set: {
+          title: title.trim(),
+          description: description.trim(),
+          priority,
+          status,
+          assigned_user_id
+        }
+      }
+    );
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Story not found in this project" });
+    }
+    res.json({ message: "Story updated" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+app.delete("/api/projects/:projectId/stories/:storyId", async (req, res) => {
+  const { projectId, storyId } = req.params;
+  if (!validId(projectId) || !validId(storyId)) {
+    return res.status(400).json({ message: "Invalid project or story id" });
+  }
+  try {
+    const { deletedCount } = await UserStory.deleteOne({ _id: storyId, project_id: projectId });
+    if (!deletedCount) {
+      return res.status(404).json({ message: "Story not found in this project" });
+    }
+    res.json({ message: "Story deleted" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
