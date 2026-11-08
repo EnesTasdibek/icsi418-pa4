@@ -1,6 +1,6 @@
 require("dotenv").config();
 
-const { MongoClient } = require("mongodb");
+const { MongoClient, ObjectId } = require("mongodb");
 const mongoose = require("mongoose");
 const express = require("express");
 //CORS configuration if the client and server run on different ports
@@ -248,27 +248,28 @@ function checkStoryFields(title, description, priority) {
   return "";
 }
 
-async function checkAssignedUser(projectId, assigned_user_id) {
-  if (assigned_user_id === null) {
+async function checkAssignedUser(projectId, assignedUserId) {
+  if (assignedUserId === null) {
     return "";
   }
-  if (!validId(assigned_user_id)) {
-    return "Invalid assigned user id";
-  }
-  if (!(await User.exists({ _id: assigned_user_id }))) {
+  if (!(await User.exists({ _id: assignedUserId }))) {
     return "Assigned user does not exist";
   }
-  if (!(await ProjectMembership.exists({ project_id: projectId, user_id: assigned_user_id }))) {
+  if (!(await ProjectMembership.exists({ project_id: projectId, user_id: assignedUserId }))) {
     return "Assigned user is not a member of this project";
   }
   return "";
 }
 
 app.get("/api/projects/:projectId/stories", async (req, res) => {
-  const { projectId } = req.params;
-  if (!validId(projectId)) {
-    return res.status(400).json({ message: "Invalid project id" });
+  const rawId = req.params.projectId;
+
+  if (typeof rawId !== "string" || !ObjectId.isValid(rawId)) {
+    return res.status(400).json({ message: "Invalid project identifier." });
   }
+
+  const projectId = new ObjectId(rawId);
+
   try {
     if (!(await Project.exists({ _id: projectId }))) {
       return res.status(404).json({ message: "Project not found" });
@@ -281,22 +282,34 @@ app.get("/api/projects/:projectId/stories", async (req, res) => {
 });
 
 app.post("/api/projects/:projectId/stories", async (req, res) => {
-  const { projectId } = req.params;
+  const rawId = req.params.projectId;
   const body = req.body || {};
   const { title, description, priority, assigned_user_id } = body;
 
-  if (!validId(projectId)) {
-    return res.status(400).json({ message: "Invalid project id" });
+  if (typeof rawId !== "string" || !ObjectId.isValid(rawId)) {
+    return res.status(400).json({ message: "Invalid project identifier." });
   }
+
+  const projectId = new ObjectId(rawId);
+
   const fieldError = checkStoryFields(title, description, priority);
   if (fieldError) {
     return res.status(400).json({ message: fieldError });
   }
+
+  let assignedUserId = null;
+  if (assigned_user_id !== null) {
+    if (typeof assigned_user_id !== "string" || !ObjectId.isValid(assigned_user_id)) {
+      return res.status(400).json({ message: "Invalid assigned user identifier." });
+    }
+    assignedUserId = new ObjectId(assigned_user_id);
+  }
+
   try {
     if (!(await Project.exists({ _id: projectId }))) {
       return res.status(404).json({ message: "Project not found" });
     }
-    const assignError = await checkAssignedUser(projectId, assigned_user_id);
+    const assignError = await checkAssignedUser(projectId, assignedUserId);
     if (assignError) {
       return res.status(400).json({ message: assignError });
     }
@@ -304,9 +317,9 @@ app.post("/api/projects/:projectId/stories", async (req, res) => {
       project_id: projectId,
       title: title.trim(),
       description: description.trim(),
-      priority,
+      priority: priority,
       status: "To Do",
-      assigned_user_id
+      assigned_user_id: assignedUserId
     });
     res.status(201).json({ message: "Story created", story });
   } catch (error) {
@@ -316,18 +329,21 @@ app.post("/api/projects/:projectId/stories", async (req, res) => {
 });
 
 app.put("/api/projects/:projectId/stories/:storyId", async (req, res) => {
-  const { projectId, storyId } = req.params;
+  const rawProjectId = req.params.projectId;
+  const rawStoryId = req.params.storyId;
   const body = req.body || {};
-  const { 
-    title, 
-    description, 
-    priority, 
-    status, 
-    assigned_user_id } = body;
+  const { title, description, priority, status, assigned_user_id } = body;
 
-  if (!validId(projectId) || !validId(storyId)) {
-    return res.status(400).json({ message: "Invalid project or story id" });
+  if (typeof rawProjectId !== "string" || !ObjectId.isValid(rawProjectId)) {
+    return res.status(400).json({ message: "Invalid project identifier." });
   }
+  if (typeof rawStoryId !== "string" || !ObjectId.isValid(rawStoryId)) {
+    return res.status(400).json({ message: "Invalid story identifier." });
+  }
+
+  const projectId = new ObjectId(rawProjectId);
+  const storyId = new ObjectId(rawStoryId);
+
   const fieldError = checkStoryFields(title, description, priority);
   if (fieldError) {
     return res.status(400).json({ message: fieldError });
@@ -335,26 +351,37 @@ app.put("/api/projects/:projectId/stories/:storyId", async (req, res) => {
   if (!storyStatuses.includes(status)) {
     return res.status(400).json({ message: "Status must be To Do, In Progress, or Done" });
   }
+
+  let assignedUserId = null;
+  if (assigned_user_id !== null) {
+    if (typeof assigned_user_id !== "string" || !ObjectId.isValid(assigned_user_id)) {
+      return res.status(400).json({ message: "Invalid assigned user identifier." });
+    }
+    assignedUserId = new ObjectId(assigned_user_id);
+  }
+
   try {
     if (!(await Project.exists({ _id: projectId }))) {
       return res.status(404).json({ message: "Project not found" });
     }
-    const assignError = await checkAssignedUser(projectId, assigned_user_id);
+    const assignError = await checkAssignedUser(projectId, assignedUserId);
     if (assignError) {
       return res.status(400).json({ message: assignError });
     }
-    const result = await UserStory.updateOne(
-      { _id: storyId, project_id: projectId },
-      {
-        $set: {
-          title: title.trim(),
-          description: description.trim(),
-          priority,
-          status,
-          assigned_user_id
-        }
-      }
-    );
+
+    const storyQuery = {
+      _id: storyId,
+      project_id: projectId
+    };
+    const updates = {
+      title: title.trim(),
+      description: description.trim(),
+      priority: priority,
+      status: status,
+      assigned_user_id: assignedUserId
+    };
+    const result = await UserStory.updateOne(storyQuery, { $set: updates });
+
     if (result.matchedCount === 0) {
       return res.status(404).json({ message: "Story not found in this project" });
     }
@@ -366,13 +393,22 @@ app.put("/api/projects/:projectId/stories/:storyId", async (req, res) => {
 });
 
 app.delete("/api/projects/:projectId/stories/:storyId", async (req, res) => {
-  const { projectId, storyId } = req.params;
-  if (!validId(projectId) || !validId(storyId)) {
-    return res.status(400).json({ message: "Invalid project or story id" });
+  const rawProjectId = req.params.projectId;
+  const rawStoryId = req.params.storyId;
+
+  if (typeof rawProjectId !== "string" || !ObjectId.isValid(rawProjectId)) {
+    return res.status(400).json({ message: "Invalid project identifier." });
   }
+  if (typeof rawStoryId !== "string" || !ObjectId.isValid(rawStoryId)) {
+    return res.status(400).json({ message: "Invalid story identifier." });
+  }
+
+  const projectId = new ObjectId(rawProjectId);
+  const storyId = new ObjectId(rawStoryId);
+
   try {
-    const { deletedCount } = await UserStory.deleteOne({ _id: storyId, project_id: projectId });
-    if (!deletedCount) {
+    const result = await UserStory.deleteOne({ _id: storyId, project_id: projectId });
+    if (result.deletedCount === 0) {
       return res.status(404).json({ message: "Story not found in this project" });
     }
     res.json({ message: "Story deleted" });
