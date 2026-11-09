@@ -66,10 +66,14 @@ function Projects() {
         onSelect={setSelectedProjectId}
       />
 
+      {selectedProject && (
+        <button onClick={() => setSelectedProjectId('')}>Close project</button>
+      )}
+
       {/* key makes React start fresh when a different project is selected */}
       {selectedProject && (
         <ProjectMembers
-          key={selectedProject._id}
+          key={'members-' + selectedProject._id}
           project={selectedProject}
           users={users}
           onMembersChanged={() => setMembersVersion(membersVersion + 1)}
@@ -78,7 +82,7 @@ function Projects() {
 
       {selectedProject && (
         <Backlog
-          key={selectedProject._id}
+          key={'backlog-' + selectedProject._id}
           project={selectedProject}
           users={users}
           membersVersion={membersVersion}

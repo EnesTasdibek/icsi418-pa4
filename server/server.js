@@ -217,7 +217,7 @@ app.delete("/api/projects/:projectId/members/:userId", async (req, res) => {
       return res.status(400).json({ message: "The project lead cannot be removed" });
     }
     if (await UserStory.exists({ project_id: projectId, assigned_user_id: userId })) {
-      return res.status(409).json({ message: "This member still has stories assigned in this project. Reassign, unassign, or delete those stories before removing them." });
+      return res.status(409).json({ message: "This member still has stories assigned in this project. Un-link by reassigning, unassigning, or deleting those stories before removing them." });
     }
     const { deletedCount } = await ProjectMembership.deleteOne({ project_id: projectId, user_id: userId });
     if (!deletedCount) {
